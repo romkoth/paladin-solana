@@ -1,10 +1,12 @@
 use {
+    bs58,
     crossbeam_channel::{RecvError, TrySendError},
     paladin_lockup_program::state::LockupPool,
     solana_perf::packet::PacketBatch,
     solana_poh::poh_recorder::PohRecorder,
     solana_sdk::{
         account::ReadableAccount, pubkey::Pubkey, saturating_add_assign, signature::Keypair,
+        transaction::VersionedTransaction,
     },
     solana_streamer::{
         nonblocking::quic::{ConnectionPeerType, ConnectionTable},
@@ -208,11 +210,27 @@ impl P3Quic {
             packet.meta_mut().set_p3(true);
             // NB: Unset the staked node flag to prevent forwarding.
             packet.meta_mut().set_from_staked_node(false);
+            
+            let size = packet.meta().size;
+            let addr = packet.meta().addr;
+            
+            // Extract signature from transaction
+            let tx: VersionedTransaction = match packet.deserialize_slice(..) {
+                Ok(tx) => tx,
+                Err(_) => continue,
+            };
+            let tx_hash = bs58::encode(tx.signatures[0]).into_string();
+            
+            info!(
+                "Received regular P3 transaction: signature={}, size={}, source={}",
+                tx_hash, size, addr
+            );
         }
 
         // Forward for verification & inclusion.
         if let Err(TrySendError::Full(_)) = self.packet_tx.try_send(packets) {
-            saturating_add_assign!(self.metrics.p3_dropped, len)
+            saturating_add_assign!(self.metrics.p3_dropped, len);
+            warn!("Dropped {} regular P3 packets due to full channel", len);
         }
     }
 
@@ -225,11 +243,27 @@ impl P3Quic {
             packet.meta_mut().set_mev(true);
             // NB: Unset the staked node flag to prevent forwarding.
             packet.meta_mut().set_from_staked_node(false);
+            
+            let size = packet.meta().size;
+            let addr = packet.meta().addr;
+            
+            // Extract signature from transaction
+            let tx: VersionedTransaction = match packet.deserialize_slice(..) {
+                Ok(tx) => tx,
+                Err(_) => continue,
+            };
+            let tx_hash = bs58::encode(tx.signatures[0]).into_string();
+            
+            info!(
+                "Received MEV transaction: signature={}, size={}, source={}",
+                tx_hash, size, addr
+            );
         }
 
         // Forward for verification & inclusion.
         if let Err(TrySendError::Full(_)) = self.packet_tx.try_send(packets) {
-            saturating_add_assign!(self.metrics.mev_dropped, len)
+            saturating_add_assign!(self.metrics.mev_dropped, len);
+            warn!("Dropped {} MEV packets due to full channel", len);
         }
     }
 
