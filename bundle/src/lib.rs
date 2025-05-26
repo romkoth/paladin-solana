@@ -63,6 +63,9 @@ pub enum BundleExecutionError {
 
     #[error("Bundle contained a front run")]
     FrontRun,
+
+    #[error("The bundle blocks on write programs that are not intended for this purpose.")]
+    WriteLocks,
 }
 
 #[derive(Debug)]

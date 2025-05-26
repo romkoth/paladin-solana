@@ -1351,6 +1351,7 @@ impl BundleStorage {
                     }
                     // NB: Tip cutoff is static & front-runs will never succeed.
                     Err(BundleExecutionError::FrontRun) => {}
+                    Err(BundleExecutionError::WriteLocks) => {}
                 },
             );
 

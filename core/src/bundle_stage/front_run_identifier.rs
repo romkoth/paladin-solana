@@ -31,9 +31,61 @@ pub(crate) const AMM_PROGRAMS: &[Pubkey] = &[
     solana_sdk::pubkey!("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"),  // Pump.fun
 ];
 
+pub(crate) const NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS: &[Pubkey] = &[
+    solana_sdk::pubkey!("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"), // RaydiumV4
+    solana_sdk::pubkey!("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"), // Serum DEX V3
+    solana_sdk::pubkey!("Eo7WjKq67rjJQSZxS6z3YkapzY3eMj6Xy8X5EQVn5UaB"), // Meteora CPMM
+    solana_sdk::pubkey!("whirLbMiicVdio4qvUfM5KAg6Ct8VwpYzGff3uctyCc"),  // Whirlpool
+    solana_sdk::pubkey!("srmqPvymJeFKQ4zGQed1GFppgkRHL9kaELCbyksJtPX"),  // Serum
+    solana_sdk::pubkey!("DjVE6JNiYqPL2QXyCUUh8rNjHrbz9hXHNYt99MQ59qw1"), // Orca AMM V1
+    solana_sdk::pubkey!("9W959DqEETiGZocYWCQPaJ6sBmUzgfxXfqGeTEdp3aQP"), // Orca AMM V2
+    solana_sdk::pubkey!("LBUZKhRxPF3XUpBCjp4YzTKgLccjZhTSDM9YuVaPwxo"),  // Meteora DLMM
+    solana_sdk::pubkey!("SSwpkEEcbUqx4vtoEByFjSkhKdCT862DNVb52nZg1UZ"),  // Saber
+    solana_sdk::pubkey!("CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK"), // Raydium CLMM
+    solana_sdk::pubkey!("CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C"), // Raydium CPMM
+    solana_sdk::pubkey!("PhoeNiXZ8ByJGLkxNfZRnkUfjvmuYqLR89jjFHGqdXY"),  // Phoenix
+    solana_sdk::pubkey!("opnb2LAfJYbRMAHHvqjCwQxanZn7ReEHp1k81EohpZb"),  // Open Book
+    solana_sdk::pubkey!("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"),  // Pump.fun
+    solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), // Solana Token Program
+    solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"), // Associated Token Account Program
+    ];
+
+pub(crate) const MAX_WRITABLE_AMM_ACCOUNTS: usize = 1;
+
 thread_local! {
     static AMM_MAP: RefCell<HashMap<Pubkey, [bool; MAX_PACKETS_PER_BUNDLE]>>
         = RefCell::new(HashMap::with_capacity(MAX_TX_ACCOUNT_LOCKS * MAX_PACKETS_PER_BUNDLE));
+}
+
+pub(crate) fn is_bundle_block_on_write<'a>(bundle: &'a impl BundleResult<'a>) -> bool {
+    if !bundle.executed_ok() {
+        eprintln!("BUG: Unexpected bundle with ERR");
+        return false;
+    }
+
+    let count = bundle.transactions().count();
+    if count <= 1 {
+        return false;
+    }
+
+    if count > MAX_PACKETS_PER_BUNDLE {
+        eprintln!("BUG: Too many packets in bundle; packets={count}");
+        return false;
+    }
+
+    
+    for tx in bundle.transactions() {
+        let mut count = 0;
+        for account in tx.writable_accounts_owners() {
+            if NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS.contains(account.owner) {
+                count += 1;
+                if count > MAX_WRITABLE_AMM_ACCOUNTS {
+                    return true; 
+                }
+            }
+        }
+    }
+    false
 }
 
 #[must_use]
@@ -248,6 +300,83 @@ mod tests {
         key: Pubkey,
         owner: Pubkey,
     }
+
+    #[test]
+    fn one_amm_write_lock_is_allowed() {
+        let bundle = MockBundleResult {
+            executed_ok: true,
+            transactions: vec![
+                MockTransaction {
+                    signers: vec![SIGNER_0],
+                    accounts: vec![MockAccount {
+                        key: Pubkey::new_from_array([0; 32]),
+                        owner: AMM_PROGRAMS[0],
+                    }],
+                },
+                MockTransaction {
+                    signers: vec![SIGNER_1],
+                    accounts: vec![
+                        MockAccount {
+                            key: Pubkey::new_from_array([1; 32]),
+                            owner: AMM_PROGRAMS[0],
+                        }
+                    ]
+                },
+                MockTransaction {
+                    signers: vec![SIGNER_2],
+                    accounts: vec![
+                        MockAccount {
+                            key: Pubkey::new_from_array([2; 32]),
+                            owner: AMM_PROGRAMS[1],
+                        }
+                    ]
+                }
+            ]
+        };
+        assert!(!is_bundle_block_on_write(&bundle));
+    }
+
+    #[test]
+    fn multiple_amm_write_lock_is_not_allowed() {
+        let bundle = MockBundleResult {
+            executed_ok: true,
+            transactions: vec![
+                MockTransaction {
+                    signers: vec![SIGNER_0],
+                    accounts: vec![MockAccount {
+                        key: Pubkey::new_from_array([0; 32]),
+                        owner: AMM_PROGRAMS[0],
+                    }],
+                },
+                MockTransaction {
+                    signers: vec![SIGNER_1],
+                    accounts: vec![
+                        MockAccount {
+                            key: Pubkey::new_from_array([1; 32]),
+                            owner: AMM_PROGRAMS[0],
+                        }
+                    ]
+                },
+                MockTransaction {
+                    signers: vec![SIGNER_2],
+                    accounts: vec![
+                        MockAccount {
+                            key: Pubkey::new_from_array([2; 32]),
+                            owner: AMM_PROGRAMS[1],
+                        },
+                        MockAccount {
+                            key: Pubkey::new_from_array([3; 32]),
+                            owner: AMM_PROGRAMS[1],
+                        }
+                    ]
+                }
+            ]
+        };
+        assert!(is_bundle_block_on_write(&bundle));
+    }
+
+    
+    
 
     #[test]
     fn two_amm_no_front_run() {

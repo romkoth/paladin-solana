@@ -270,6 +270,7 @@ impl BundleStageStatsMetricsTracker {
                 }
                 // TODO: Consider adding metrics.
                 Err(BundleExecutionError::FrontRun) => {}
+                Err(BundleExecutionError::WriteLocks) => {}
             }
         }
     }

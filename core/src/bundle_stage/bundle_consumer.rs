@@ -612,6 +612,26 @@ impl BundleConsumer {
             };
         }
 
+        if super::front_run_identifier::is_bundle_block_on_write(&bundle_execution_results) {
+            info!(
+                "Dropping write locks bundle; bundle_id={}; txs=[{}]",
+                sanitized_bundle.bundle_id,
+                sanitized_bundle
+                    .transactions
+                    .iter()
+                    .map(|tx| tx.signature().to_string())
+                    .join(", ")
+            );
+
+            return ExecuteRecordCommitResult {
+                commit_transaction_details: vec![],
+                result: Err(BundleExecutionError::WriteLocks),
+                execution_metrics,
+                execute_and_commit_timings,
+                transaction_error_counter, 
+            }
+        }
+
         // NB: Must run before we start committing the transactions.
         if super::front_run_identifier::is_bundle_front_run(&bundle_execution_results) {
             info!(
