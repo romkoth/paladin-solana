@@ -50,6 +50,7 @@ pub(crate) const NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS: &[Pubkey] = &[
     solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"), // Associated Token Account Program
     solana_sdk::pubkey!("11111111111111111111111111111111"), // System Program
     solana_sdk::pubkey!("ComputeBudget111111111111111111111111111111"), // Compute Budget 
+    solana_sdk::pubkey!("JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4"), // JUP Aggregator V6
     ];
 
 pub(crate) const MAX_WRITABLE_AMM_ACCOUNTS: usize = 1;
