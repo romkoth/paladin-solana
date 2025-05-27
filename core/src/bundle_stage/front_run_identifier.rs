@@ -48,6 +48,8 @@ pub(crate) const NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS: &[Pubkey] = &[
     solana_sdk::pubkey!("6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P"),  // Pump.fun
     solana_sdk::pubkey!("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"), // Solana Token Program
     solana_sdk::pubkey!("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"), // Associated Token Account Program
+    solana_sdk::pubkey!("11111111111111111111111111111111"), // System Program
+    solana_sdk::pubkey!("ComputeBudget111111111111111111111111111111"), // Compute Budget 
     ];
 
 pub(crate) const MAX_WRITABLE_AMM_ACCOUNTS: usize = 1;
