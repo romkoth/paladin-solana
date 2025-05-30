@@ -35,7 +35,6 @@ use {
     }
 };
 
-pub(crate) const MAX_WRITABLE_AMM_ACCOUNTS: usize = 1;
 pub(crate) const NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS: &[Pubkey] = &[
     solana_sdk::pubkey!("675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8"), // RaydiumV4
     solana_sdk::pubkey!("9xQeWvG816bUx9EPjHmaT23yvVM2ZWbrrpZb9PusVFin"), // Serum DEX V3
@@ -282,13 +281,9 @@ where
     }
 
     fn has_problematic_bundle_locks(tx: &impl TransactionWithMeta) -> bool {
-        let mut count = 0;
         for (i, key) in tx.account_keys().iter().enumerate() {
             if tx.is_writable(i) && NOT_ALLOWED_FOR_WRITELOCK_PROGRAMS.contains(key) {
-                count += 1;
-                if count > MAX_WRITABLE_AMM_ACCOUNTS {
-                    return true;
-                }
+                return true; // Block any transaction writing to these programs
             }
         }
         false
