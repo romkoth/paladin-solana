@@ -4310,7 +4310,8 @@ impl ReplayStage {
                     voted_stakes.get(slot)
                 );
             }
-            if bank.is_frozen() && tower.is_slot_mostly_confirmed(*slot, voted_stakes, total_stake) {
+            let epoch_vote_accounts = bank.get_current_epoch_vote_accounts();
+            if bank.is_frozen() && tower.is_slot_mostly_confirmed(*slot, voted_stakes, total_stake, &epoch_vote_accounts) {
                 mostly_confirmed_forks.push(*slot);
             }
         }

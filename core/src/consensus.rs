@@ -215,6 +215,7 @@ impl TowerVersions {
                     after_skip_threshold: None,
                     threshold_escape_count: None,
                     last_config_check_seconds: 0,
+                    copied_validators_pubkeys: tower.copied_validators_pubkeys.clone(),
                 }
             }
             TowerVersions::V1_14_11(tower) => Tower {
@@ -232,6 +233,7 @@ impl TowerVersions {
                 after_skip_threshold: None,
                 threshold_escape_count: None,
                 last_config_check_seconds: 0,
+                copied_validators_pubkeys: tower.copied_validators_pubkeys.clone(),
             },
             TowerVersions::Current(tower) => tower,
         }
@@ -279,6 +281,7 @@ pub struct Tower {
     after_skip_threshold: Option<u8>,
     threshold_escape_count: Option<u8>,
     last_config_check_seconds: u64,
+    copied_validators_pubkeys: Vec<Pubkey>,
 }
 
 impl Default for Tower {
@@ -298,6 +301,7 @@ impl Default for Tower {
             after_skip_threshold: None,
             threshold_escape_count: None,
             last_config_check_seconds: 0,
+            copied_validators_pubkeys: Vec::new(),
         };
         // VoteState::root_slot is ensured to be Some in Tower
         tower.vote_state.root_slot = Some(Slot::default());
@@ -319,6 +323,7 @@ impl From<Tower> for Tower1_14_11 {
             last_timestamp: tower.last_timestamp,
             stray_restored_slot: tower.stray_restored_slot,
             last_switch_threshold_check: tower.last_switch_threshold_check,
+            copied_validators_pubkeys: tower.copied_validators_pubkeys.clone(),
         }
     }
 }
@@ -342,6 +347,7 @@ impl From<Tower1_14_11> for Tower {
             after_skip_threshold: None,
             threshold_escape_count: None,
             last_config_check_seconds: 0,
+            copied_validators_pubkeys: tower.copied_validators_pubkeys.clone(),
         }
     }
 }
@@ -365,6 +371,7 @@ impl From<Tower1_7_14> for Tower {
             after_skip_threshold: None,
             threshold_escape_count: None,
             last_config_check_seconds: 0,
+            copied_validators_pubkeys: tower.copied_validators_pubkeys.clone(),
         }
     }
 }
@@ -617,7 +624,17 @@ impl Tower {
         slot: Slot,
         voted_stakes: &VotedStakes,
         total_stake: Stake,
+        epoch_vote_accounts: &VoteAccountsHashMap,
     ) -> bool {
+        // First check if any allowed validator has voted for this slot
+        if !self.copied_validators_pubkeys.is_empty() {
+            if self.has_allowed_pubkey_voted(slot, epoch_vote_accounts) {
+                info!("top validator has voted for slot {} - we copied him", slot);
+                return true;
+            }
+        }
+
+        // If no allowed validators have voted, fall back to the normal threshold check
         let mostly_confirmed_threshold = if let Some(m) = self.mostly_confirmed_threshold {
             m
         } else {
@@ -769,88 +786,111 @@ impl Tower {
             self.last_config_check_seconds = config_check_seconds;
             match read_to_string(&Path::new("./mostly_confirmed_threshold")) {
                 Ok(s) => {
-                    let split = s
-                        .strip_suffix("\n")
-                        .unwrap_or("")
-                        .split_whitespace()
-                        .collect::<Vec<&str>>();
-                    match split.get(0).unwrap_or(&"").parse::<f64>() {
-                        Ok(threshold) => {
-                            if let Some(mostly_confirmed_threshold) =
-                                self.mostly_confirmed_threshold
-                            {
-                                if mostly_confirmed_threshold != threshold {
+                    let lines: Vec<&str> = s.lines().collect();
+                    if let Some(first_line) = lines.get(0) {
+                        let split = first_line
+                            .strip_suffix("\n")
+                            .unwrap_or("")
+                            .split_whitespace()
+                            .collect::<Vec<&str>>();
+                        match split.get(0).unwrap_or(&"").parse::<f64>() {
+                            Ok(threshold) => {
+                                if let Some(mostly_confirmed_threshold) =
+                                    self.mostly_confirmed_threshold
+                                {
+                                    if mostly_confirmed_threshold != threshold {
+                                        self.mostly_confirmed_threshold = Some(threshold);
+                                        warn!("Using new mostly_confirmed_threshold: {}", threshold);
+                                    }
+                                } else {
                                     self.mostly_confirmed_threshold = Some(threshold);
                                     warn!("Using new mostly_confirmed_threshold: {}", threshold);
                                 }
-                            } else {
-                                self.mostly_confirmed_threshold = Some(threshold);
-                                warn!("Using new mostly_confirmed_threshold: {}", threshold);
+                            }
+                            _ => {
+                                warn!("Using NO mostly_confirmed_threshold");
+                                self.mostly_confirmed_threshold = None;
                             }
                         }
-                        _ => {
-                            warn!("Using NO mostly_confirmed_threshold");
-                            self.mostly_confirmed_threshold = None;
-                        }
-                    }
-                    match split.get(1).unwrap_or(&"").parse::<u8>() {
-                        Ok(count) => {
-                            if let Some(already_count) = self.threshold_ahead_count {
-                                if already_count != count {
+                        match split.get(1).unwrap_or(&"").parse::<u8>() {
+                            Ok(count) => {
+                                if let Some(already_count) = self.threshold_ahead_count {
+                                    if already_count != count {
+                                        self.threshold_ahead_count = Some(count);
+                                        warn!("Using new threshold_ahead_count: {}", count);
+                                    }
+                                } else {
                                     self.threshold_ahead_count = Some(count);
                                     warn!("Using new threshold_ahead_count: {}", count);
                                 }
-                            } else {
-                                self.threshold_ahead_count = Some(count);
-                                warn!("Using new threshold_ahead_count: {}", count);
+                            }
+                            _ => {
+                                warn!("Using NO threshold_ahead_count");
+                                self.threshold_ahead_count = None;
                             }
                         }
-                        _ => {
-                            warn!("Using NO threshold_ahead_count");
-                            self.threshold_ahead_count = None;
-                        }
-                    }
-                    match split.get(2).unwrap_or(&"").parse::<u8>() {
-                        Ok(threshold) => {
-                            if let Some(already_after_skip_threshold) = self.after_skip_threshold {
-                                if already_after_skip_threshold != threshold {
+                        match split.get(2).unwrap_or(&"").parse::<u8>() {
+                            Ok(threshold) => {
+                                if let Some(already_after_skip_threshold) = self.after_skip_threshold {
+                                    if already_after_skip_threshold != threshold {
+                                        self.after_skip_threshold = Some(threshold);
+                                        warn!("Using new after_skip_threshold: {}", threshold);
+                                    }
+                                } else {
                                     self.after_skip_threshold = Some(threshold);
                                     warn!("Using new after_skip_threshold: {}", threshold);
                                 }
-                            } else {
-                                self.after_skip_threshold = Some(threshold);
-                                warn!("Using new after_skip_threshold: {}", threshold);
+                            }
+                            _ => {
+                                warn!("Using NO after_skip_threshold");
+                                self.after_skip_threshold = None;
                             }
                         }
-                        _ => {
-                            warn!("Using NO after_skip_threshold");
-                            self.after_skip_threshold = None;
-                        }
-                    }
-                    match split.get(3).unwrap_or(&"").parse::<u8>() {
-                        Ok(escape) => {
-                            if let Some(already_escape) = self.threshold_escape_count {
-                                if already_escape != escape {
+                        match split.get(3).unwrap_or(&"").parse::<u8>() {
+                            Ok(escape) => {
+                                if let Some(already_escape) = self.threshold_escape_count {
+                                    if already_escape != escape {
+                                        self.threshold_escape_count = Some(escape);
+                                        warn!("Using new threshold_escape_count: {}", escape);
+                                    }
+                                } else {
                                     self.threshold_escape_count = Some(escape);
                                     warn!("Using new threshold_escape_count: {}", escape);
                                 }
-                            } else {
-                                self.threshold_escape_count = Some(escape);
-                                warn!("Using new threshold_escape_count: {}", escape);
+                            }
+                            _ => {
+                                warn!("Using NO threshold_escape_count");
+                                self.threshold_escape_count = None;
                             }
                         }
-                        _ => {
-                            warn!("Using NO threshold_escape_count");
-                            self.threshold_escape_count = None;
+                    }
+
+                    // Parse the second line for pubkeys
+                    if let Some(second_line) = lines.get(1) {
+                        let pubkeys: Vec<Pubkey> = second_line
+                            .split_whitespace()
+                            .filter_map(|s| s.parse::<Pubkey>().ok())
+                            .collect();
+                        
+                        if !pubkeys.is_empty() {
+                            self.copied_validators_pubkeys = pubkeys;
+                            warn!("Updated allowed pubkeys list with {} entries", self.copied_validators_pubkeys.len());
+                        } else {
+                            warn!("No valid pubkeys found in the second line");
+                            self.copied_validators_pubkeys.clear();
                         }
+                    } else {
+                        warn!("No second line found for pubkeys");
+                        self.copied_validators_pubkeys.clear();
                     }
                 }
                 _ => {
-                    warn!("Using NO mostly_confirmed_threshold, threshold_ahead_count, after_skip_threshold, or threshold_escape_count");
+                    warn!("Using NO mostly_confirmed_threshold, threshold_ahead_count, after_skip_threshold, threshold_escape_count, or allowed_pubkeys");
                     self.mostly_confirmed_threshold = None;
                     self.threshold_ahead_count = None;
                     self.after_skip_threshold = None;
                     self.threshold_escape_count = None;
+                    self.copied_validators_pubkeys.clear();
                 }
             }
         }
@@ -1932,6 +1972,26 @@ impl Tower {
     pub fn restore(tower_storage: &dyn TowerStorage, node_pubkey: &Pubkey) -> Result<Self> {
         tower_storage.load(node_pubkey)
     }
+
+    fn has_allowed_pubkey_voted(
+        &self,
+        slot: Slot,
+        epoch_vote_accounts: &VoteAccountsHashMap,
+    ) -> bool {
+        if self.copied_validators_pubkeys.is_empty() {
+            return false;
+        }
+
+        for (key, vote_account) in epoch_vote_accounts {
+            if self.copied_validators_pubkeys.contains(key) {
+                let vote_state = vote_account.1.vote_state();
+                if vote_state.last_voted_slot().map_or(false, |voted_slot| voted_slot >= slot) {
+                    return true;
+                }
+            }
+        }
+        false
+    }
 }
 
 #[derive(Error, Debug)]
@@ -2946,7 +3006,7 @@ pub mod test {
         let mut tower = Tower::new_for_tests(0, 0.67);
         let ancestors: HashSet<Slot> = vec![0].into_iter().collect();
         tower.record_vote(0, Hash::default());
-        tower.record_vote(1, Hash::default());
+        tower.record_vote(0, Hash::default());
         assert!(tower.is_locked_out(0, &ancestors));
     }
 

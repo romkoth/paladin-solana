@@ -35,4 +35,5 @@ pub struct Tower1_14_11 {
     pub(crate) stray_restored_slot: Option<Slot>,
     #[serde(skip)]
     pub(crate) last_switch_threshold_check: Option<(Slot, SwitchForkDecision)>,
+    pub(crate) copied_validators_pubkeys: Vec<Pubkey>,
 }
